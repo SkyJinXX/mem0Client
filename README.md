@@ -1,6 +1,6 @@
 # 🧠 Mem0 Client
 
-A powerful AI memory management tool that interfaces with the Mem0 API for uploading, processing, and searching memories with both CLI and web interfaces.
+A specialized AI memory management tool for **chat conversation archival and retrieval**. Designed to batch import chat histories, short documents, and provide time-based memory search through both CLI and web interfaces.
 
 ## ✨ Features
 
@@ -11,6 +11,31 @@ A powerful AI memory management tool that interfaces with the Mem0 API for uploa
 - **💾 Persistent Settings**: Save your preferences to configuration files
 - **🔍 Advanced Search**: Semantic search, time-based filtering, and content analysis
 - **📊 Analytics**: Weekly reports and memory statistics
+
+## ⚠️ Important Usage Notes
+
+### 🧠 How Mem0 Memory Works
+
+**Mem0's memory system is optimized for real-time conversation flow**, not bulk historical data processing. Understanding this is crucial for effective usage:
+
+#### ✅ Best Use Cases
+- **Short text snippets** (documents, notes, summaries)
+- **Individual chat conversations** (exported as JSON)
+- **Incremental batch processing** of chat histories
+- **Real-time memory updates** during active conversations
+
+#### ❌ Limitations
+- **Large chat histories**: When uploading 50+ message conversations at once, Mem0 typically only processes the **last 2-3 messages** effectively
+- **Bulk historical dumps**: Massive conversation exports lose context and memory quality degrades significantly
+
+#### 🎯 Recommended Workflow
+1. **Export conversations** using tools like [Echoes Chrome Extension](https://chromewebstore.google.com/detail/echoes-chatgpt-claude-gem/ppnfnillfndkellpbphafglnljdefjph?hl=en-US)
+2. **Process conversations individually** - one JSON file per conversation session
+3. **Use incremental batch processing** - simulate real-time chat by processing messages in smaller chunks
+4. **Query by time ranges** - search memories within specific date periods for better organization
+5. **Generate manual reports** - use search results to create custom weekly/monthly summaries
+
+This tool is specifically designed for **chat conversation archival and retrieval**, not as a replacement for real-time memory integration.
 
 ## 🚀 Quick Start
 
@@ -95,9 +120,11 @@ Configure processing options in the left sidebar:
 1. Go to **Upload → Batch Files**
 2. Select multiple files (.md, .txt, .json, .markdown)
 3. Choose processing mode:
-   - **Concurrent**: Faster parallel processing
-   - **Sequential**: Safer one-by-one processing
+   - **Concurrent**: Faster parallel processing (recommended for multiple short files)
+   - **Sequential**: Safer one-by-one processing (recommended for large JSON chat files)
 4. Upload with automatic retry and detailed results
+
+> **💡 Pro Tip**: For large chat conversation JSON files, use **Sequential mode** to ensure proper incremental processing that simulates real-time chat flow.
 
 ## 💻 CLI Usage
 
