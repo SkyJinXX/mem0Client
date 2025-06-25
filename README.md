@@ -12,6 +12,12 @@ A specialized AI memory management tool for **chat conversation archival and ret
 - **🔍 Advanced Search**: Semantic search, time-based filtering, and content analysis
 - **📊 Analytics**: Weekly reports and memory statistics
 
+## 📸 Interface Preview
+
+![Mem0 Client Web Interface](docs/web_page.png)
+
+*Clean and intuitive web interface with tabbed navigation, sidebar settings, and comprehensive search capabilities.*
+
 ## ⚠️ Important Usage Notes
 
 ### 🧠 How Mem0 Memory Works
