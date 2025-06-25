@@ -14,7 +14,7 @@ A specialized AI memory management tool for **chat conversation archival and ret
 
 ## 📸 Interface Preview
 
-![Mem0 Client Web Interface](/docs/web_page.png)
+![Mem0 Client Web Interface](docs/web_page.png)
 
 *Clean and intuitive web interface with tabbed navigation, sidebar settings, and comprehensive search capabilities.*
 
