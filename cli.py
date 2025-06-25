@@ -27,16 +27,17 @@ def cli():
 @cli.command()
 @click.argument('content', type=str)
 @click.option('--user-id', '-u', help='User ID for the memory')
-@click.option('--extract-mode', '-m', type=click.Choice(['auto', 'raw']), default='auto',
-              help='Processing mode: auto (AI processing) or raw (original content)')
 @click.option('--metadata', help='Additional metadata as JSON string')
-@click.option('--custom-instructions', '--ci', help='Custom instructions for AI processing')
-@click.option('--includes', '--inc', help='Content types to specifically include (comma-separated)')
-@click.option('--excludes', '--exc', help='Content types to exclude from processing (comma-separated)')
-@click.option('--infer/--no-infer', default=None, help='Whether to infer memories (True) or store raw messages (False)')
-def upload_text(content: str, user_id: Optional[str], extract_mode: str, metadata: Optional[str],
+@click.option('--custom-instructions', '--ci', help='Custom instructions for AI processing (overrides config)')
+@click.option('--includes', '--inc', help='Content types to specifically include (overrides config)')
+@click.option('--excludes', '--exc', help='Content types to exclude from processing (overrides config)')
+@click.option('--infer/--no-infer', default=None, help='Whether to infer memories (overrides config)')
+@click.option('--batch-size', type=int, help='Batch size for processing long message lists (default: from config)')
+@click.option('--disable-batching', is_flag=True, help='Disable automatic batch processing for long messages')
+@click.option('--use-defaults', is_flag=True, help='Use persistent settings from config file')
+def upload_text(content: str, user_id: Optional[str], metadata: Optional[str],
                custom_instructions: Optional[str], includes: Optional[str], excludes: Optional[str],
-               infer: Optional[bool]):
+               infer: Optional[bool], batch_size: Optional[int], disable_batching: bool, use_defaults: bool):
     """Upload text content to Mem0."""
     try:
         config = Config()
@@ -51,30 +52,49 @@ def upload_text(content: str, user_id: Optional[str], extract_mode: str, metadat
                 console.print("❌ Invalid JSON format for metadata")
                 return
         
+        # Use persistent config settings if requested or no CLI args provided
+        final_custom_instructions = custom_instructions
+        final_includes = includes
+        final_excludes = excludes
+        final_infer = infer
+        
+        if use_defaults or (not custom_instructions and not includes and not excludes and infer is None):
+            final_custom_instructions = final_custom_instructions or config.advanced_custom_instructions
+            final_includes = final_includes or config.advanced_includes
+            final_excludes = final_excludes or config.advanced_excludes
+            if final_infer is None:
+                final_infer = config.advanced_infer
+        
         result = uploader.upload_text(
             content=content,
             user_id=user_id,
-            extract_mode=extract_mode,
+            extract_mode="auto",  # Always use auto mode now
             metadata=meta_dict,
-            custom_instructions=custom_instructions,
-            includes=includes,
-            excludes=excludes,
-            infer=infer
+            custom_instructions=final_custom_instructions.strip() if final_custom_instructions else None,
+            includes=final_includes.strip() if final_includes else None,
+            excludes=final_excludes.strip() if final_excludes else None,
+            infer=final_infer,
+            batch_size=batch_size,
+            disable_batching=disable_batching
         )
         
         console.print(Panel(f"✅ Successfully uploaded text memory", title="Upload Complete"))
         
-        # Show applied custom settings
-        if custom_instructions or includes or excludes or infer is not None:
-            console.print("\n📋 Applied Custom Settings:")
-            if custom_instructions:
-                console.print(f"  🎯 Custom Instructions: {custom_instructions}")
-            if includes:
-                console.print(f"  ✅ Includes: {includes}")
-            if excludes:
-                console.print(f"  ❌ Excludes: {excludes}")
-            if infer is not None:
-                console.print(f"  🧠 Infer: {infer}")
+        # Show applied settings
+        applied_settings = []
+        if final_custom_instructions:
+            applied_settings.append(f"🎯 Custom Instructions: {final_custom_instructions}")
+        if final_includes:
+            applied_settings.append(f"✅ Includes: {final_includes}")
+        if final_excludes:
+            applied_settings.append(f"❌ Excludes: {final_excludes}")
+        if final_infer is not None:
+            applied_settings.append(f"🧠 Infer: {final_infer}")
+        
+        if applied_settings:
+            console.print("\n📋 Applied Settings:")
+            for setting in applied_settings:
+                console.print(f"  {setting}")
         
     except Exception as e:
         console.print(f"❌ Upload failed: {str(e)}")
@@ -82,43 +102,63 @@ def upload_text(content: str, user_id: Optional[str], extract_mode: str, metadat
 @cli.command()
 @click.argument('file_path', type=click.Path(exists=True))
 @click.option('--user-id', '-u', help='User ID for the memory')
-@click.option('--extract-mode', '-m', type=click.Choice(['auto', 'raw']),
-              help='Processing mode: auto (AI processing) or raw (original content)')
-@click.option('--custom-instructions', '--ci', help='Custom instructions for AI processing')
-@click.option('--includes', '--inc', help='Content types to specifically include (comma-separated)')
-@click.option('--excludes', '--exc', help='Content types to exclude from processing (comma-separated)')
-@click.option('--infer/--no-infer', default=None, help='Whether to infer memories (True) or store raw messages (False)')
-def upload_file(file_path: str, user_id: Optional[str], extract_mode: Optional[str],
+@click.option('--custom-instructions', '--ci', help='Custom instructions for AI processing (overrides config)')
+@click.option('--includes', '--inc', help='Content types to specifically include (overrides config)')
+@click.option('--excludes', '--exc', help='Content types to exclude from processing (overrides config)')
+@click.option('--infer/--no-infer', default=None, help='Whether to infer memories (overrides config)')
+@click.option('--batch-size', type=int, help='Batch size for processing long message lists (default: from config)')
+@click.option('--disable-batching', is_flag=True, help='Disable automatic batch processing for long messages')
+@click.option('--use-defaults', is_flag=True, help='Use persistent settings from config file')
+def upload_file(file_path: str, user_id: Optional[str],
                custom_instructions: Optional[str], includes: Optional[str], excludes: Optional[str],
-               infer: Optional[bool]):
+               infer: Optional[bool], batch_size: Optional[int], disable_batching: bool, use_defaults: bool):
     """Upload a single file to Mem0."""
     try:
         config = Config()
         uploader = MemoryUploader(config)
         
+        # Use persistent config settings if requested or no CLI args provided
+        final_custom_instructions = custom_instructions
+        final_includes = includes
+        final_excludes = excludes
+        final_infer = infer
+        
+        if use_defaults or (not custom_instructions and not includes and not excludes and infer is None):
+            final_custom_instructions = final_custom_instructions or config.advanced_custom_instructions
+            final_includes = final_includes or config.advanced_includes
+            final_excludes = final_excludes or config.advanced_excludes
+            if final_infer is None:
+                final_infer = config.advanced_infer
+        
         result = uploader.upload_file(
             file_path=file_path,
             user_id=user_id,
-            extract_mode=extract_mode,
-            custom_instructions=custom_instructions,
-            includes=includes,
-            excludes=excludes,
-            infer=infer
+            extract_mode="auto",  # Always use auto mode now
+            custom_instructions=final_custom_instructions.strip() if final_custom_instructions else None,
+            includes=final_includes.strip() if final_includes else None,
+            excludes=final_excludes.strip() if final_excludes else None,
+            infer=final_infer,
+            batch_size=batch_size,
+            disable_batching=disable_batching
         )
         
         console.print(Panel(f"✅ Successfully uploaded file: {file_path}", title="Upload Complete"))
         
-        # Show applied custom settings
-        if custom_instructions or includes or excludes or infer is not None:
-            console.print("\n📋 Applied Custom Settings:")
-            if custom_instructions:
-                console.print(f"  🎯 Custom Instructions: {custom_instructions}")
-            if includes:
-                console.print(f"  ✅ Includes: {includes}")
-            if excludes:
-                console.print(f"  ❌ Excludes: {excludes}")
-            if infer is not None:
-                console.print(f"  🧠 Infer: {infer}")
+        # Show applied settings
+        applied_settings = []
+        if final_custom_instructions:
+            applied_settings.append(f"🎯 Custom Instructions: {final_custom_instructions}")
+        if final_includes:
+            applied_settings.append(f"✅ Includes: {final_includes}")
+        if final_excludes:
+            applied_settings.append(f"❌ Excludes: {final_excludes}")
+        if final_infer is not None:
+            applied_settings.append(f"🧠 Infer: {final_infer}")
+        
+        if applied_settings:
+            console.print("\n📋 Applied Settings:")
+            for setting in applied_settings:
+                console.print(f"  {setting}")
         
     except Exception as e:
         console.print(f"❌ Upload failed: {str(e)}")
@@ -126,43 +166,107 @@ def upload_file(file_path: str, user_id: Optional[str], extract_mode: Optional[s
 @cli.command()
 @click.argument('directory_path', type=click.Path(exists=True, file_okay=False, dir_okay=True))
 @click.option('--user-id', '-u', help='User ID for the memories')
-@click.option('--extract-mode', '-m', type=click.Choice(['auto', 'raw']),
-              help='Processing mode: auto (AI processing) or raw (original content)')
 @click.option('--recursive/--no-recursive', default=True, help='Search subdirectories recursively')
-def upload_directory(directory_path: str, user_id: Optional[str], extract_mode: Optional[str], recursive: bool):
-    """Upload all supported files from a directory."""
+@click.option('--concurrent/--no-concurrent', default=None, help='Use concurrent processing (default: from config)')
+@click.option('--custom-instructions', '--ci', help='Custom instructions for AI processing (overrides config)')
+@click.option('--includes', '--inc', help='Content types to specifically include (overrides config)')
+@click.option('--excludes', '--exc', help='Content types to exclude from processing (overrides config)')
+@click.option('--infer/--no-infer', default=None, help='Whether to infer memories (overrides config)')
+@click.option('--use-defaults', is_flag=True, help='Use persistent settings from config file')
+def upload_directory(directory_path: str, user_id: Optional[str], recursive: bool, concurrent: Optional[bool],
+                    custom_instructions: Optional[str], includes: Optional[str], excludes: Optional[str],
+                    infer: Optional[bool], use_defaults: bool):
+    """Upload all supported files from a directory with enhanced batch processing."""
     try:
         config = Config()
         uploader = MemoryUploader(config)
         
-        results = uploader.upload_directory(
-            directory_path=directory_path,
+        # Use persistent config settings if requested or no CLI args provided
+        final_custom_instructions = custom_instructions
+        final_includes = includes
+        final_excludes = excludes
+        final_infer = infer
+        
+        if use_defaults or (not custom_instructions and not includes and not excludes and infer is None):
+            final_custom_instructions = final_custom_instructions or config.advanced_custom_instructions
+            final_includes = final_includes or config.advanced_includes
+            final_excludes = final_excludes or config.advanced_excludes
+            if final_infer is None:
+                final_infer = config.advanced_infer
+        
+        # Find files first
+        import os
+        from pathlib import Path
+        
+        supported_extensions = config.supported_formats
+        file_paths = []
+        
+        if recursive:
+            for root, dirs, files in os.walk(directory_path):
+                for file in files:
+                    if any(file.lower().endswith(ext) for ext in supported_extensions):
+                        file_paths.append(os.path.join(root, file))
+        else:
+            for file in os.listdir(directory_path):
+                file_path = os.path.join(directory_path, file)
+                if os.path.isfile(file_path) and any(file.lower().endswith(ext) for ext in supported_extensions):
+                    file_paths.append(file_path)
+        
+        if not file_paths:
+            console.print("📭 No supported files found in the directory")
+            return
+        
+        console.print(f"📁 Found {len(file_paths)} files to upload")
+        
+        # Use enhanced batch upload
+        results = uploader.upload_batch(
+            file_paths=file_paths,
             user_id=user_id,
-            extract_mode=extract_mode,
-            recursive=recursive
+            extract_mode="auto",
+            custom_instructions=final_custom_instructions.strip() if final_custom_instructions else None,
+            includes=final_includes.strip() if final_includes else None,
+            excludes=final_excludes.strip() if final_excludes else None,
+            infer=final_infer,
+            concurrent_upload=concurrent
         )
         
-        # Show summary
+        # Show detailed summary
         success_count = sum(1 for r in results if r["status"] == "success")
         error_count = len(results) - success_count
+        total_attempts = sum(r.get("attempts", 0) for r in results)
         
-        if results:
-            console.print(Panel(
-                f"📊 Upload Summary:\n"
-                f"✅ Successful: {success_count}\n"
-                f"❌ Failed: {error_count}\n"
-                f"📁 Total files: {len(results)}",
-                title="Batch Upload Complete"
-            ))
-            
-            # Show errors if any
-            if error_count > 0:
-                console.print("\n🚨 Errors:")
-                for result in results:
-                    if result["status"] == "error":
-                        console.print(f"  ❌ {result['file']}: {result['error']}")
-        else:
-            console.print("📭 No supported files found in the directory")
+        console.print(Panel(
+            f"📊 Enhanced Batch Upload Summary:\n"
+            f"✅ Successful: {success_count}/{len(file_paths)}\n"
+            f"❌ Failed: {error_count}/{len(file_paths)}\n"
+            f"🔄 Total attempts: {total_attempts}\n"
+            f"📈 Success rate: {(success_count/len(file_paths)*100):.1f}%",
+            title="Batch Upload Complete"
+        ))
+        
+        # Show applied settings
+        applied_settings = []
+        if final_custom_instructions:
+            applied_settings.append(f"🎯 Custom Instructions: {final_custom_instructions}")
+        if final_includes:
+            applied_settings.append(f"✅ Includes: {final_includes}")
+        if final_excludes:
+            applied_settings.append(f"❌ Excludes: {final_excludes}")
+        if final_infer is not None:
+            applied_settings.append(f"🧠 Infer: {final_infer}")
+        
+        if applied_settings:
+            console.print("\n📋 Applied Settings:")
+            for setting in applied_settings:
+                console.print(f"  {setting}")
+        
+        # Show errors if any
+        if error_count > 0:
+            console.print("\n🚨 Failed Files:")
+            for result in results:
+                if result["status"] == "error":
+                    attempts = result.get("attempts", 0)
+                    console.print(f"  ❌ {result['file']} (after {attempts} attempts): {result['error']}")
         
     except Exception as e:
         console.print(f"❌ Batch upload failed: {str(e)}")
@@ -181,7 +285,7 @@ def search(query: str, user_id: Optional[str], limit: Optional[int], show_full: 
         results = searcher.search_by_query(
             query=query,
             user_id=user_id,
-            limit=limit
+            # limit=limit
         )
         
         # Display results
@@ -212,7 +316,7 @@ def search_time(days: Optional[int], start_date: Optional[str], end_date: Option
             end_date=end_date,
             query=query,
             user_id=user_id,
-            limit=limit
+            # limit=limit
         )
         
         # Display results
@@ -290,7 +394,7 @@ def search_related(content: str, user_id: Optional[str], limit: Optional[int], e
             content=content,
             user_id=user_id,
             exclude_time_range=exclude_range,
-            limit=limit
+            # limit=limit
         )
         
         # Display results

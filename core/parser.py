@@ -41,30 +41,22 @@ class FileParser:
             raise ValueError(f"Invalid JSON format: {str(e)}")
         
         messages = []
-        metadata = {
-            "source": "json_chat",
-            "format": "json_conversation",
-            "parsed_at": datetime.now().isoformat()
-        }
+        metadata = {}
         
-        # Extract conversation metadata
-        if "title" in data:
-            metadata["conversation_title"] = data["title"]
-        if "id" in data:
-            metadata["conversation_id"] = data["id"]
+        # Only extract conversation timestamps for JSON chats (useful for querying)
         if "created" in data:
             try:
                 # Convert timestamp to datetime
                 created_time = datetime.fromtimestamp(data["created"] / 1000)  # Assuming milliseconds
-                metadata["conversation_created"] = created_time.isoformat()
+                metadata["created"] = created_time.isoformat()
             except (ValueError, TypeError):
-                metadata["conversation_created"] = str(data["created"])
+                metadata["created"] = str(data["created"])
         if "updated" in data:
             try:
                 updated_time = datetime.fromtimestamp(data["updated"] / 1000)  # Assuming milliseconds
-                metadata["conversation_updated"] = updated_time.isoformat()
+                metadata["updated"] = updated_time.isoformat()
             except (ValueError, TypeError):
-                metadata["conversation_updated"] = str(data["updated"])
+                metadata["updated"] = str(data["updated"])
         
         # Parse messages
         if "messages" in data and isinstance(data["messages"], list):
@@ -73,14 +65,14 @@ class FileParser:
                     continue
                 
                 # Extract role and content
-                role = msg.get("role", "user")
+                role = msg.get("role", "user")  # Default to user if no role specified
                 content = msg.get("content", "")
                 
                 # Skip empty messages
                 if not content or not content.strip():
                     continue
                 
-                # Normalize role
+                # Normalize role (handles user, assistant, system, tool, etc.)
                 normalized_role = FileParser._normalize_role(role)
                 
                 # Skip assistant messages entirely - only keep user messages
@@ -103,19 +95,6 @@ class FileParser:
                 }
                 
                 messages.append(parsed_msg)
-            
-            metadata["message_count"] = len(messages)
-            
-            # Add conversation stats
-            role_counts = {}
-            truncated_count = 0
-            for msg in messages:
-                role = msg["role"]
-                role_counts[role] = role_counts.get(role, 0) + 1
-                if "[消息已截断" in msg["content"]:
-                    truncated_count += 1
-            
-            metadata["role_distribution"] = role_counts
         
         else:
             raise ValueError("JSON must contain a 'messages' array")
@@ -137,11 +116,7 @@ class FileParser:
             Tuple of (messages_list, metadata)
         """
         messages = []
-        metadata = {
-            "source": "markdown_chat",
-            "format": "conversation",
-            "parsed_at": datetime.now().isoformat()
-        }
+        metadata = {}  # No metadata needed for markdown chat
         
         # Common patterns for chat logs
         patterns = [
@@ -171,10 +146,9 @@ class FileParser:
         # If no pattern matches, treat as single message
         if not messages:
             messages.append({
-                "role": "user",
+                "role": "user",  # Default to user for unstructured content
                 "content": content.strip()
             })
-            metadata["format"] = "single_message"
         
         return messages, metadata
     
@@ -191,12 +165,20 @@ class FileParser:
         if any(alias in role_lower for alias in ['assistant', 'ai', 'bot', 'gpt', 'claude', 'chatgpt', '助手', '机器人']):
             return "assistant"
         
+        # looks like mem0 server only takes roles of user or assistant. other roles will encounter Bad request 400.
+        return "assistant"
+        
         # System aliases
         if any(alias in role_lower for alias in ['system', 'sys', '系统']):
             return "system"
+        
+        # Tool aliases
+        if any(alias in role_lower for alias in ['tool', 'function', 'api', 'service', '工具', '函数']):
+            return "tool"
             
-        # Default to user if unclear
-        return "user"
+        # Return original role if it doesn't match common patterns
+        # This preserves roles like "tool", "function", etc. that might be used as-is
+        return role_lower
     
     @staticmethod
     def parse_plain_text(content: str, extract_mode: str = "auto") -> Tuple[List[Dict[str, str]], Dict[str, Any]]:
@@ -210,20 +192,10 @@ class FileParser:
         Returns:
             Tuple of (messages_list, metadata)
         """
-        metadata = {
-            "source": "plain_text",
-            "extract_mode": extract_mode,
-            "parsed_at": datetime.now().isoformat()
-        }
+        metadata = {}  # No metadata needed for plain text
         
-        if extract_mode == "raw":
-            # Store as-is without AI processing
-            messages = [{"role": "user", "content": content.strip()}]
-            metadata["format"] = "raw_content"
-        else:
-            # Let Mem0 AI process and extract
-            messages = [{"role": "user", "content": content.strip()}]
-            metadata["format"] = "ai_extract"
+        # Always treat as user message for plain text
+        messages = [{"role": "user", "content": content.strip()}]
         
         return messages, metadata
     
@@ -305,15 +277,7 @@ class FileParser:
             Tuple of (messages_list, metadata)
         """
         content = FileParser.read_file(file_path)
-        
-        # Add file metadata
         path = Path(file_path)
-        base_metadata = {
-            "file_name": path.name,
-            "file_path": str(path.absolute()),
-            "file_size": path.stat().st_size,
-            "file_modified": datetime.fromtimestamp(path.stat().st_mtime).isoformat()
-        }
         
         # Detect content type
         content_type = FileParser.detect_content_type(content, path.suffix)
@@ -335,7 +299,7 @@ class FileParser:
         else:
             messages, metadata = FileParser.parse_plain_text(content, extract_mode)
         
-        # Merge metadata
-        metadata.update(base_metadata)
+        # Only add filename for file uploads
+        metadata["filename"] = path.name
         
         return messages, metadata 

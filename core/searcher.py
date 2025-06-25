@@ -5,9 +5,11 @@ from typing import List, Dict, Any, Optional, Union
 from datetime import datetime, timedelta
 from mem0 import MemoryClient
 from rich.console import Console
-from rich.table import Table
-from rich.text import Text
 from .config import Config
+from .utils import (
+    DebugLogger, FilterBuilder, DateTimeHelper, 
+    ResultDisplayer, ApiParameterBuilder
+)
 
 console = Console()
 
@@ -26,6 +28,9 @@ class MemorySearcher:
         # Initialize Mem0 client
         os.environ['MEM0_API_KEY'] = self.config.mem0_api_key
         self.client = MemoryClient()
+        
+        # Initialize debug logger
+        self.logger = DebugLogger(self.config.debug_logging)
         
         console.print(f"✅ Initialized Mem0 searcher for user: {self.config.default_user_id}")
     
@@ -50,24 +55,31 @@ class MemorySearcher:
         limit = limit or self.config.search_default_limit
         
         try:
-            # Build filters
-            search_filters = {"AND": [{"user_id": user_id}]}
+            # Build filters using utility class
+            search_filters = FilterBuilder.build_user_filter(user_id)
             if filters:
-                search_filters["AND"].append(filters)
+                search_filters = FilterBuilder.add_additional_filters(search_filters, filters)
             
-            # Search using Mem0 v2 API
-            results = self.client.search(
-                query=query,
-                version="v2",
-                filters=search_filters,
-                limit=limit
+            # Log operation parameters
+            self.logger.log_operation_params(
+                "Simple search",
+                user_id=user_id, query=query, limit=limit, search_filters=search_filters
             )
             
-            console.print(f"🔍 Found {len(results)} memories for query: '{query}'")
+            # Build API parameters
+            api_params = ApiParameterBuilder.build_search_params(query, search_filters, limit)
+            self.logger.log_api_request("client.search", **api_params)
+            
+            # Search using Mem0 v2 API
+            results = self.client.search(**api_params)
+            
+            # Log response
+            self.logger.log_api_response("client.search", results)
+            console.print(f"[SEARCH] Found {len(results)} memories for query: '{query}'")
             return results
             
         except Exception as e:
-            console.print(f"❌ Search failed: {str(e)}")
+            self.logger.log_error("Simple search", e)
             raise
     
     def search_by_time_range(self,
@@ -103,37 +115,42 @@ class MemorySearcher:
         elif start_date is None or end_date is None:
             raise ValueError("Either 'days_back' or both 'start_date' and 'end_date' must be provided")
         
+        # Convert date strings to datetime format using utility
+        start_date = DateTimeHelper.ensure_datetime_format(start_date)
+        end_date = DateTimeHelper.ensure_end_datetime_format(end_date)
+        
         try:
-            # Build time filters
-            time_filter = {
-                "AND": [
-                    {"user_id": user_id},
-                    {"created_at": {"gte": start_date, "lte": end_date}}
-                ]
-            }
+            # Build time filters using utility class
+            time_filter = FilterBuilder.build_time_filter(user_id, start_date, end_date)
+            
+            # Log operation parameters
+            self.logger.log_operation_params(
+                "Time range search",
+                user_id=user_id, date_range=f"{start_date} to {end_date}",
+                query=query, limit=limit, time_filter=time_filter
+            )
             
             if query:
                 # Search with query within time range
-                results = self.client.search(
-                    query=query,
-                    version="v2",
-                    filters=time_filter,
-                    limit=limit
-                )
+                api_params = ApiParameterBuilder.build_search_params(query, time_filter, limit)
+                self.logger.log_api_request("client.search with query", **api_params)
+                
+                results = self.client.search(**api_params)
                 console.print(f"🔍 Found {len(results)} memories for '{query}' between {start_date} and {end_date}")
             else:
                 # Get all memories in time range
-                results = self.client.get_all(
-                    version="v2",
-                    filters=time_filter,
-                    limit=limit
-                )
-                console.print(f"📅 Found {len(results)} memories between {start_date} and {end_date}")
+                api_params = ApiParameterBuilder.build_get_all_params(time_filter, limit)
+                self.logger.log_api_request("client.get_all without query", **api_params)
+                
+                results = self.client.get_all(**api_params)
+                console.print(f"[TIME] Found {len(results)} memories between {start_date} and {end_date}")
             
+            # Log response
+            self.logger.log_api_response("Time range search", results)
             return results
             
         except Exception as e:
-            console.print(f"❌ Time range search failed: {str(e)}")
+            self.logger.log_error("Time range search", e)
             raise
     
     def search_weekly_report_data(self, 
@@ -233,14 +250,14 @@ class MemorySearcher:
                 query=content[:500],  # Limit query length
                 version="v2",
                 filters=search_filters,
-                limit=limit
+                top_k=limit
             )
             
-            console.print(f"🔗 Found {len(results)} memories related to the provided content")
+            console.print(f"[RELATED] Found {len(results)} memories related to the provided content")
             return results
             
         except Exception as e:
-            console.print(f"❌ Related content search failed: {str(e)}")
+            console.print(f"[ERROR] Related content search failed: {str(e)}")
             raise
     
     def display_search_results(self, results: List[Dict[str, Any]], max_content_length: int = 100):
@@ -251,49 +268,7 @@ class MemorySearcher:
             results: List of memory results from search
             max_content_length: Maximum length of content to display
         """
-        if not results:
-            console.print("📭 No results found")
-            return
-        
-        table = Table(title="🧠 Memory Search Results")
-        table.add_column("ID", style="cyan", width=8)
-        table.add_column("Content", style="white", width=50)
-        table.add_column("Created", style="green", width=12)
-        table.add_column("Source", style="yellow", width=15)
-        table.add_column("Score", style="magenta", width=8)
-        
-        for result in results:
-            memory_id = result.get('id', 'N/A')[:8]
-            content = result.get('memory', '')
-            
-            # Truncate content if too long
-            if len(content) > max_content_length:
-                content = content[:max_content_length] + "..."
-            
-            created_at = result.get('created_at', 'N/A')
-            if created_at != 'N/A':
-                try:
-                    # Parse and format date
-                    dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                    created_at = dt.strftime('%Y-%m-%d')
-                except:
-                    created_at = created_at[:10]  # Just take first 10 chars
-            
-            metadata = result.get('metadata', {})
-            source = metadata.get('source', 'unknown')
-            
-            score = result.get('score', 0)
-            score_str = f"{score:.2f}" if isinstance(score, (int, float)) else str(score)
-            
-            table.add_row(
-                memory_id,
-                content,
-                created_at,
-                source,
-                score_str
-            )
-        
-        console.print(table)
+        ResultDisplayer.display_console_results(results, max_content_length)
     
     def get_user_stats(self, user_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -349,5 +324,5 @@ class MemorySearcher:
             return stats
             
         except Exception as e:
-            console.print(f"❌ Failed to get user stats: {str(e)}")
+            console.print(f"[ERROR] Failed to get user stats: {str(e)}")
             raise 

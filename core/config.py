@@ -66,9 +66,80 @@ class Config:
         """Get debug logging setting."""
         return self.config.get('debug', {}).get('enable_api_logging', True)
     
+    @property
+    def message_batch_threshold(self) -> int:
+        """Get message batch threshold."""
+        return self.config.get('message_processing', {}).get('batch_threshold', 10)
+    
+    @property 
+    def message_batch_size(self) -> int:
+        """Get message batch size."""
+        return self.config.get('message_processing', {}).get('batch_size', 8)
+    
+    @property
+    def enable_message_batching(self) -> bool:
+        """Get whether message batching is enabled."""
+        return self.config.get('message_processing', {}).get('enable_batching', True)
+    
+    # Advanced settings properties
+    @property
+    def advanced_custom_instructions(self) -> str:
+        """Get persistent custom instructions."""
+        return self.config.get('advanced_settings', {}).get('custom_instructions', '')
+    
+    @property
+    def advanced_includes(self) -> str:
+        """Get persistent includes."""
+        return self.config.get('advanced_settings', {}).get('includes', '')
+    
+    @property
+    def advanced_excludes(self) -> str:
+        """Get persistent excludes."""
+        return self.config.get('advanced_settings', {}).get('excludes', '')
+    
+    @property
+    def advanced_exclude_presets(self) -> list:
+        """Get persistent exclude presets."""
+        return self.config.get('advanced_settings', {}).get('exclude_presets', [])
+    
+    @property
+    def advanced_infer(self) -> bool:
+        """Get persistent infer setting."""
+        return self.config.get('advanced_settings', {}).get('infer', True)
+    
+    # File processing properties
+    @property
+    def concurrent_upload(self) -> bool:
+        """Get whether concurrent file uploads are enabled."""
+        return self.config.get('file_processing', {}).get('concurrent_upload', True)
+    
+    @property
+    def max_concurrent_files(self) -> int:
+        """Get maximum number of concurrent file uploads."""
+        return self.config.get('file_processing', {}).get('max_concurrent_files', 3)
+    
     def get_time_preset(self, preset_name: str) -> Optional[int]:
         """Get time preset value in days."""
         return self.config.get('time_presets', {}).get(preset_name)
+    
+    def update_advanced_settings(self, **settings):
+        """Update advanced settings and save to config file."""
+        if 'advanced_settings' not in self.config:
+            self.config['advanced_settings'] = {}
+        
+        # Update the settings
+        for key, value in settings.items():
+            if key in ['custom_instructions', 'includes', 'excludes', 'exclude_presets', 'infer']:
+                self.config['advanced_settings'][key] = value
+        
+        # Save to file
+        self._save_config()
+    
+    def _save_config(self):
+        """Save current config to file."""
+        config_path = Path(__file__).parent.parent / "config.yaml"
+        with open(config_path, 'w', encoding='utf-8') as f:
+            yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True)
     
     def validate(self) -> bool:
         """Validate configuration."""

@@ -12,10 +12,15 @@ from typing import Optional, List, Dict, Any
 from core.config import Config
 from core.uploader import MemoryUploader
 from core.searcher import MemorySearcher
+from core.web_helpers import (
+    perform_search, perform_time_search, generate_weekly_report,
+    display_search_results, show_stats, create_advanced_settings_ui,
+    create_metadata_ui, process_exclude_presets
+)
 
 # Page configuration
 st.set_page_config(
-    page_title="🧠 Mem0 Client",
+    page_title="Mem0 Client",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -32,21 +37,17 @@ if 'config' not in st.session_state:
         st.session_state.initialized = False
         st.session_state.init_error = str(e)
 
-# Initialize Advanced Settings persistence
-if 'advanced_settings' not in st.session_state:
+# Load persistent advanced settings from config
+if 'advanced_settings_loaded' not in st.session_state:
+    # Load from config file first time
     st.session_state.advanced_settings = {
-        'text_custom_instructions': '',
-        'text_includes': '',
-        'text_excludes': '',
-        'text_exclude_presets': [],
-        'text_infer': True,
-        'file_custom_instructions': '',
-        'file_includes': '',
-        'file_excludes': '',
-        'file_exclude_presets': [],
-        'file_infer': True,
-        'advanced_settings_expanded': False
+        'custom_instructions': st.session_state.config.advanced_custom_instructions,
+        'includes': st.session_state.config.advanced_includes,
+        'excludes': st.session_state.config.advanced_excludes,
+        'exclude_presets': st.session_state.config.advanced_exclude_presets,
+        'infer': st.session_state.config.advanced_infer,
     }
+    st.session_state.advanced_settings_loaded = True
 
 def main():
     """Main application function."""
@@ -70,25 +71,91 @@ def main():
             help="Identifier for your memories"
         )
         
-        # Extract mode selection
-        extract_mode = st.selectbox(
-            "Extract Mode",
-            options=["auto", "raw"],
-            index=0 if st.session_state.config.default_extract_mode == "auto" else 1,
-            help="auto: AI processing, raw: original content"
+        st.divider()
+        
+        # Advanced Settings in sidebar
+        st.subheader("🎯 Advanced Settings")
+        
+        # Custom Instructions
+        custom_instructions = st.text_area(
+            "Custom Instructions",
+            value=st.session_state.advanced_settings['custom_instructions'],
+            placeholder="Guide AI on how to process and extract memories...",
+            help="Custom instructions for AI processing",
+            height=80,
+            key="sidebar_custom_instructions"
         )
+        
+        # Includes and Excludes in columns
+        col1, col2 = st.columns(2)
+        with col1:
+            includes = st.text_input(
+                "Includes",
+                value=st.session_state.advanced_settings['includes'],
+                placeholder="tech docs, APIs",
+                help="Content types to include",
+                key="sidebar_includes"
+            )
+        
+        with col2:
+            excludes = st.text_input(
+                "Excludes",
+                value=st.session_state.advanced_settings['excludes'],
+                placeholder="personal info",
+                help="Content types to exclude",
+                key="sidebar_excludes"
+            )
+        
+        # Exclude presets
+        exclude_presets = st.multiselect(
+            "Privacy Presets",
+            ["Personal Names", "Contact Info", "Address", "Financial", "Passwords", "ID Numbers", "Sensitive Info"],
+            default=st.session_state.advanced_settings['exclude_presets'],
+            help="Common exclusion presets",
+            key="sidebar_exclude_presets"
+        )
+        
+        # Infer setting
+        infer = st.checkbox(
+            "Infer Memories",
+            value=st.session_state.advanced_settings['infer'],
+            help="AI intelligent processing vs raw storage",
+            key="sidebar_infer"
+        )
+        
+        # Save settings button
+        if st.button("💾 Save Settings", type="secondary"):
+            # Update session state
+            st.session_state.advanced_settings.update({
+                'custom_instructions': custom_instructions,
+                'includes': includes,
+                'excludes': excludes,
+                'exclude_presets': exclude_presets,
+                'infer': infer
+            })
+            
+            # Save to config file
+            st.session_state.config.update_advanced_settings(
+                custom_instructions=custom_instructions,
+                includes=includes,
+                excludes=excludes,
+                exclude_presets=exclude_presets,
+                infer=infer
+            )
+            
+            st.success("✅ Settings saved!")
         
         st.divider()
         
         # Quick stats
         if st.button("📊 Show Stats"):
-            show_stats(user_id)
+            show_stats(st.session_state.searcher, user_id)
     
     # Main tabs
     tab1, tab2, tab3, tab4 = st.tabs(["📤 Upload", "🔍 Search", "📅 Time Search", "📊 Weekly Report"])
     
     with tab1:
-        upload_interface(user_id, extract_mode)
+        upload_interface(user_id)
     
     with tab2:
         search_interface(user_id)
@@ -99,7 +166,7 @@ def main():
     with tab4:
         weekly_report_interface(user_id)
 
-def upload_interface(user_id: str, extract_mode: str):
+def upload_interface(user_id: str):
     """Upload interface."""
     st.header("📤 Upload Memories")
     
@@ -120,122 +187,45 @@ def upload_interface(user_id: str, extract_mode: str):
             placeholder="Enter your text content here..."
         )
         
-        # Advanced Settings
-        with st.expander("⚙️ Advanced Settings", expanded=st.session_state.advanced_settings.get('advanced_settings_expanded', False)):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                custom_instructions = st.text_area(
-                    "自定义指令 (Custom Instructions)",
-                    value=st.session_state.advanced_settings.get('text_custom_instructions', ''),
-                    placeholder="例如：请专注于提取技术相关的信息，忽略日常闲聊内容...",
-                    help="指导AI如何处理和提取记忆内容的自定义指令",
-                    height=80,
-                    key="text_custom_instructions_input"
-                )
-                
-                includes = st.text_input(
-                    "包含内容 (Includes)",
-                    value=st.session_state.advanced_settings.get('text_includes', ''),
-                    placeholder="例如：技术知识, 工作经验, 项目信息",
-                    help="指定要特别包含的信息类型，用逗号分隔",
-                    key="text_includes_input"
-                )
-                
-                # Infer setting
-                infer = st.checkbox(
-                    "推理记忆 (Infer Memories)",
-                    value=st.session_state.advanced_settings.get('text_infer', True),
-                    help="True: AI会智能推理和提取记忆；False: 存储原始消息内容",
-                    key="text_infer_input"
-                )
-            
-            with col2:
-                excludes = st.text_input(
-                    "排除内容 (Excludes)",
-                    value=st.session_state.advanced_settings.get('text_excludes', ''),
-                    placeholder="例如：个人信息, 敏感数据, 隐私内容",
-                    help="指定要排除的信息类型，用逗号分隔",
-                    key="text_excludes_input"
-                )
-                
-                # 预设的排除选项
-                exclude_presets = st.multiselect(
-                    "常用排除选项",
-                    ["个人姓名", "联系方式", "地址信息", "财务信息", "密码/秘钥", "身份证号", "其他敏感信息"],
-                    default=st.session_state.advanced_settings.get('text_exclude_presets', []),
-                    help="选择常用的排除类型，会自动添加到排除内容中",
-                    key="text_exclude_presets_input"
-                )
-            
-            # Update session state when values change
-            st.session_state.advanced_settings.update({
-                'text_custom_instructions': custom_instructions,
-                'text_includes': includes,
-                'text_excludes': excludes,
-                'text_exclude_presets': exclude_presets,
-                'text_infer': infer,
-                'advanced_settings_expanded': True  # Mark as expanded since user is using it
-            })
-        
-        # Metadata
-        with st.expander("🏷️ Additional Metadata (Optional)"):
-            col1, col2 = st.columns(2)
-            with col1:
-                source_tag = st.text_input("Source", placeholder="e.g., meeting, idea, note")
-            with col2:
-                category_tag = st.text_input("Category", placeholder="e.g., work, personal, research")
+        # Metadata input
+        metadata = create_metadata_ui()
         
         if st.button("📤 Upload Text", type="primary"):
             if text_content.strip():
-                metadata = {}
-                if source_tag:
-                    metadata['source_tag'] = source_tag
-                if category_tag:
-                    metadata['category_tag'] = category_tag
-                
-                # 处理排除选项
-                final_excludes = excludes
-                if exclude_presets:
-                    preset_mapping = {
-                        "个人姓名": "personal names, individual names",
-                        "联系方式": "contact information, phone numbers, email addresses",
-                        "地址信息": "addresses, location information",
-                        "财务信息": "financial information, bank details, payment information", 
-                        "密码/秘钥": "passwords, secret keys, credentials",
-                        "身份证号": "ID numbers, identification numbers",
-                        "其他敏感信息": "other sensitive information, private data"
-                    }
-                    preset_excludes = [preset_mapping[preset] for preset in exclude_presets]
-                    if final_excludes:
-                        final_excludes = final_excludes + ", " + ", ".join(preset_excludes)
-                    else:
-                        final_excludes = ", ".join(preset_excludes)
+                # Get settings from sidebar
+                final_excludes = process_exclude_presets(
+                    st.session_state.advanced_settings['excludes'], 
+                    st.session_state.advanced_settings['exclude_presets']
+                )
                 
                 try:
                     with st.spinner("Uploading..."):
                         result = st.session_state.uploader.upload_text(
                             content=text_content,
                             user_id=user_id,
-                            extract_mode=extract_mode,
+                            extract_mode="auto",  # Always use auto mode
                             metadata=metadata,
-                            custom_instructions=custom_instructions.strip() if custom_instructions.strip() else None,
-                            includes=includes.strip() if includes.strip() else None,
-                            excludes=final_excludes.strip() if final_excludes.strip() else None,
-                            infer=infer
+                            custom_instructions=st.session_state.advanced_settings['custom_instructions'].strip() or None,
+                            includes=st.session_state.advanced_settings['includes'].strip() or None,
+                            excludes=final_excludes.strip() or None,
+                            infer=st.session_state.advanced_settings['infer']
                         )
                     st.success("✅ Text uploaded successfully!")
                     
-                    # 显示使用的配置
-                    if custom_instructions.strip() or includes.strip() or final_excludes.strip() or infer is not None:
+                    # Show applied settings if any are configured
+                    applied_settings = []
+                    if st.session_state.advanced_settings['custom_instructions'].strip():
+                        applied_settings.append(f"**Custom Instructions:** {st.session_state.advanced_settings['custom_instructions'].strip()}")
+                    if st.session_state.advanced_settings['includes'].strip():
+                        applied_settings.append(f"**Includes:** {st.session_state.advanced_settings['includes'].strip()}")
+                    if final_excludes.strip():
+                        applied_settings.append(f"**Excludes:** {final_excludes.strip()}")
+                    applied_settings.append(f"**Infer Memories:** {st.session_state.advanced_settings['infer']}")
+                    
+                    if applied_settings:
                         with st.expander("📋 Applied Settings"):
-                            if custom_instructions.strip():
-                                st.write("**Custom Instructions:**", custom_instructions.strip())
-                            if includes.strip():
-                                st.write("**Includes:**", includes.strip())
-                            if final_excludes.strip():
-                                st.write("**Excludes:**", final_excludes.strip())
-                            st.write("**Infer Memories:**", infer)
+                            for setting in applied_settings:
+                                st.write(setting)
                     
                 except Exception as e:
                     st.error(f"❌ Upload failed: {str(e)}")
@@ -265,83 +255,13 @@ def upload_interface(user_id: str, extract_mode: str):
                 except Exception as e:
                     st.error(f"❌ Cannot preview file: {str(e)}")
             
-            # Advanced Settings for file upload
-            with st.expander("⚙️ Advanced Settings", expanded=st.session_state.advanced_settings.get('advanced_settings_expanded', False)):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    file_custom_instructions = st.text_area(
-                        "自定义指令 (Custom Instructions)",
-                        value=st.session_state.advanced_settings.get('file_custom_instructions', ''),
-                        placeholder="例如：这是技术文档，请重点提取架构和API信息...",
-                        help="指导AI如何处理和提取记忆内容的自定义指令",
-                        height=80,
-                        key="file_custom_instructions"
-                    )
-                    
-                    file_includes = st.text_input(
-                        "包含内容 (Includes)",
-                        value=st.session_state.advanced_settings.get('file_includes', ''),
-                        placeholder="例如：技术文档, API接口, 架构设计",
-                        help="指定要特别包含的信息类型，用逗号分隔",
-                        key="file_includes"
-                    )
-                    
-                    # Infer setting for file upload
-                    file_infer = st.checkbox(
-                        "推理记忆 (Infer Memories)",
-                        value=st.session_state.advanced_settings.get('file_infer', True),
-                        help="True: AI会智能推理和提取记忆；False: 存储原始消息内容",
-                        key="file_infer_input"
-                    )
-                
-                with col2:
-                    file_excludes = st.text_input(
-                        "排除内容 (Excludes)",
-                        value=st.session_state.advanced_settings.get('file_excludes', ''),
-                        placeholder="例如：个人信息, 临时备注, 调试信息",
-                        help="指定要排除的信息类型，用逗号分隔",
-                        key="file_excludes"
-                    )
-                    
-                    # 预设的排除选项
-                    file_exclude_presets = st.multiselect(
-                        "常用排除选项",
-                        ["个人姓名", "联系方式", "地址信息", "财务信息", "密码/秘钥", "身份证号", "其他敏感信息"],
-                        default=st.session_state.advanced_settings.get('file_exclude_presets', []),
-                        help="选择常用的排除类型，会自动添加到排除内容中",
-                        key="file_exclude_presets"
-                    )
-                
-                # Update session state when values change
-                st.session_state.advanced_settings.update({
-                    'file_custom_instructions': file_custom_instructions,
-                    'file_includes': file_includes,
-                    'file_excludes': file_excludes,
-                    'file_exclude_presets': file_exclude_presets,
-                    'file_infer': file_infer,
-                    'advanced_settings_expanded': True  # Mark as expanded since user is using it
-                })
-            
             if st.button("📤 Upload File", type="primary"):
                 try:
-                    # 处理排除选项
-                    final_file_excludes = file_excludes
-                    if file_exclude_presets:
-                        preset_mapping = {
-                            "个人姓名": "personal names, individual names",
-                            "联系方式": "contact information, phone numbers, email addresses",
-                            "地址信息": "addresses, location information",
-                            "财务信息": "financial information, bank details, payment information", 
-                            "密码/秘钥": "passwords, secret keys, credentials",
-                            "身份证号": "ID numbers, identification numbers",
-                            "其他敏感信息": "other sensitive information, private data"
-                        }
-                        preset_excludes = [preset_mapping[preset] for preset in file_exclude_presets]
-                        if final_file_excludes:
-                            final_file_excludes = final_file_excludes + ", " + ", ".join(preset_excludes)
-                        else:
-                            final_file_excludes = ", ".join(preset_excludes)
+                    # Get settings from sidebar
+                    final_excludes = process_exclude_presets(
+                        st.session_state.advanced_settings['excludes'], 
+                        st.session_state.advanced_settings['exclude_presets']
+                    )
                     
                     # Save uploaded file temporarily
                     import tempfile
@@ -355,11 +275,11 @@ def upload_interface(user_id: str, extract_mode: str):
                         result = st.session_state.uploader.upload_file(
                             file_path=tmp_path,
                             user_id=user_id,
-                            extract_mode=extract_mode,
-                            custom_instructions=file_custom_instructions.strip() if file_custom_instructions.strip() else None,
-                            includes=file_includes.strip() if file_includes.strip() else None,
-                            excludes=final_file_excludes.strip() if final_file_excludes.strip() else None,
-                            infer=file_infer
+                            extract_mode="auto",  # Always use auto mode
+                            custom_instructions=st.session_state.advanced_settings['custom_instructions'].strip() or None,
+                            includes=st.session_state.advanced_settings['includes'].strip() or None,
+                            excludes=final_excludes.strip() or None,
+                            infer=st.session_state.advanced_settings['infer']
                         )
                     
                     # Clean up temp file
@@ -367,25 +287,119 @@ def upload_interface(user_id: str, extract_mode: str):
                     
                     st.success(f"✅ File '{uploaded_file.name}' uploaded successfully!")
                     
-                    # 显示使用的配置
-                    if file_custom_instructions.strip() or file_includes.strip() or final_file_excludes.strip() or file_infer is not None:
-                        with st.expander("📋 Applied Settings"):
-                            if file_custom_instructions.strip():
-                                st.write("**Custom Instructions:**", file_custom_instructions.strip())
-                            if file_includes.strip():
-                                st.write("**Includes:**", file_includes.strip())
-                            if final_file_excludes.strip():
-                                st.write("**Excludes:**", final_file_excludes.strip())
-                            st.write("**Infer Memories:**", file_infer)
-                    
                 except Exception as e:
                     st.error(f"❌ Upload failed: {str(e)}")
     
     else:
-        # Batch upload
-        st.subheader("📂 Batch Upload")
-        st.info("Use the CLI tool for batch uploading files from a directory")
-        st.code("python cli.py upload-directory /path/to/directory --user-id your_user_id")
+        # Batch Files upload
+        st.subheader("📂 Batch Files Upload")
+        
+        uploaded_files = st.file_uploader(
+            "Choose multiple files",
+            type=['md', 'txt', 'markdown', 'json'],
+            accept_multiple_files=True,
+            help="Upload multiple files at once. Supported formats: .md, .txt, .markdown, .json"
+        )
+        
+        if uploaded_files:
+            st.info(f"📄 Selected {len(uploaded_files)} files")
+            
+            # Show file list
+            with st.expander("📋 File List", expanded=True):
+                for i, file in enumerate(uploaded_files, 1):
+                    st.write(f"{i}. {file.name} ({file.size} bytes)")
+            
+            # Processing options
+            col1, col2 = st.columns(2)
+            with col1:
+                concurrent_upload = st.checkbox(
+                    "Concurrent Upload",
+                    value=st.session_state.config.concurrent_upload,
+                    help="Process files concurrently for faster upload"
+                )
+            
+            with col2:
+                if concurrent_upload:
+                    max_workers = st.slider(
+                        "Max Concurrent Files",
+                        min_value=1,
+                        max_value=5,
+                        value=st.session_state.config.max_concurrent_files,
+                        help="Maximum number of files to process simultaneously"
+                    )
+                else:
+                    max_workers = 1
+                    st.write("Sequential processing (safer)")
+            
+            if st.button("📤 Upload All Files", type="primary"):
+                try:
+                    # Get settings from sidebar
+                    final_excludes = process_exclude_presets(
+                        st.session_state.advanced_settings['excludes'], 
+                        st.session_state.advanced_settings['exclude_presets']
+                    )
+                    
+                    # Save all files temporarily
+                    import tempfile
+                    import os
+                    
+                    temp_files = []
+                    for uploaded_file in uploaded_files:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{uploaded_file.name}") as tmp_file:
+                            tmp_file.write(uploaded_file.getvalue())
+                            temp_files.append(tmp_file.name)
+                    
+                    try:
+                        with st.spinner(f"Uploading {len(temp_files)} files..."):
+                            # Create a placeholder for results
+                            results_placeholder = st.empty()
+                            
+                            # Use the enhanced batch upload function
+                            results = st.session_state.uploader.upload_batch(
+                                file_paths=temp_files,
+                                user_id=user_id,
+                                extract_mode="auto",
+                                custom_instructions=st.session_state.advanced_settings['custom_instructions'].strip() or None,
+                                includes=st.session_state.advanced_settings['includes'].strip() or None,
+                                excludes=final_excludes.strip() or None,
+                                infer=st.session_state.advanced_settings['infer'],
+                                concurrent_upload=concurrent_upload
+                            )
+                        
+                        # Display results
+                        success_count = sum(1 for r in results if r["status"] == "success")
+                        error_count = len(results) - success_count
+                        
+                        if success_count > 0:
+                            st.success(f"✅ Successfully uploaded {success_count}/{len(uploaded_files)} files!")
+                        
+                        if error_count > 0:
+                            st.error(f"❌ {error_count} files failed to upload")
+                        
+                        # Detailed results
+                        with st.expander("📊 Detailed Results", expanded=error_count > 0):
+                            for i, result in enumerate(results):
+                                original_filename = uploaded_files[i].name
+                                if result["status"] == "success":
+                                    attempts = result.get("attempts", 1)
+                                    attempt_text = f" (took {attempts} attempts)" if attempts > 1 else ""
+                                    st.write(f"✅ {original_filename}{attempt_text}")
+                                else:
+                                    st.write(f"❌ {original_filename}: {result['error']}")
+                    
+                    finally:
+                        # Clean up temp files
+                        for temp_file in temp_files:
+                            try:
+                                os.unlink(temp_file)
+                            except:
+                                pass  # Ignore cleanup errors
+                    
+                except Exception as e:
+                    st.error(f"❌ Batch upload failed: {str(e)}")
+        
+        else:
+            st.info("👆 Select multiple files to upload them in batch")
 
 def search_interface(user_id: str):
     """Search interface."""
@@ -403,7 +417,7 @@ def search_interface(user_id: str):
     with col1:
         if st.button("🔍 Search", type="primary"):
             if query.strip():
-                perform_search(query, user_id)
+                perform_search(st.session_state.searcher, query, user_id)
             else:
                 st.warning("⚠️ Please enter a search query")
     
@@ -432,7 +446,7 @@ def time_search_interface(user_id: str):
             query = st.text_input("Optional Query", placeholder="Search within time range")
         
         if st.button("📅 Search by Days", type="primary"):
-            perform_time_search(days_back=days_back, query=query or None, user_id=user_id)
+            perform_time_search(st.session_state.searcher, user_id=user_id, days_back=days_back, query=query or None)
     
     else:
         col1, col2, col3 = st.columns(3)
@@ -445,10 +459,11 @@ def time_search_interface(user_id: str):
         
         if st.button("📅 Search by Date Range", type="primary"):
             perform_time_search(
+                st.session_state.searcher,
+                user_id=user_id,
                 start_date=start_date.strftime('%Y-%m-%d'),
                 end_date=end_date.strftime('%Y-%m-%d'),
-                query=query or None,
-                user_id=user_id
+                query=query or None
             )
 
 def weekly_report_interface(user_id: str):
@@ -462,163 +477,9 @@ def weekly_report_interface(user_id: str):
     
     with col2:
         if st.button("📊 Generate Report", type="primary"):
-            generate_weekly_report(weeks_back, user_id)
+            generate_weekly_report(st.session_state.searcher, weeks_back, user_id)
 
-def perform_search(query: str, user_id: str, limit: int = 10):
-    """Perform a search and display results."""
-    try:
-        with st.spinner("Searching..."):
-            results = st.session_state.searcher.search_by_query(
-                query=query,
-                user_id=user_id,
-                limit=limit
-            )
-        
-        display_search_results(results, f"🔍 Search Results for: '{query}'")
-        
-    except Exception as e:
-        st.error(f"❌ Search failed: {str(e)}")
-
-def perform_time_search(user_id: str, days_back: Optional[int] = None, 
-                       start_date: Optional[str] = None, end_date: Optional[str] = None,
-                       query: Optional[str] = None):
-    """Perform time-based search and display results."""
-    try:
-        with st.spinner("Searching..."):
-            results = st.session_state.searcher.search_by_time_range(
-                days_back=days_back,
-                start_date=start_date,
-                end_date=end_date,
-                query=query,
-                user_id=user_id
-            )
-        
-        time_desc = f"{days_back} days ago" if days_back else f"{start_date} to {end_date}"
-        title = f"📅 Time Search Results: {time_desc}"
-        if query:
-            title += f" (Query: '{query}')"
-        
-        display_search_results(results, title)
-        
-    except Exception as e:
-        st.error(f"❌ Time search failed: {str(e)}")
-
-def generate_weekly_report(weeks_back: int, user_id: str):
-    """Generate and display weekly report."""
-    try:
-        with st.spinner("Generating report..."):
-            report_data = st.session_state.searcher.search_weekly_report_data(
-                weeks_back=weeks_back,
-                user_id=user_id
-            )
-        
-        # Report summary
-        st.subheader(f"📊 Weekly Report (Week {weeks_back} ago)")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Week Period", f"{report_data['week_start']} to {report_data['week_end']}")
-        with col2:
-            st.metric("Current Week Memories", report_data['summary']['total_current'])
-        with col3:
-            st.metric("Related Historical", report_data['summary']['total_related'])
-        
-        # Current week memories
-        if report_data['week_memories']:
-            st.subheader("📅 Current Week Memories")
-            display_search_results(report_data['week_memories'][:10], "")
-        
-        # Related memories
-        if report_data['related_memories']:
-            st.subheader("🔗 Related Historical Memories")
-            display_search_results(report_data['related_memories'][:5], "")
-        
-        # Download report data
-        if st.button("💾 Download Report Data"):
-            st.download_button(
-                label="📄 Download JSON",
-                data=json.dumps(report_data, indent=2, ensure_ascii=False),
-                file_name=f"weekly_report_{report_data['week_start']}.json",
-                mime="application/json"
-            )
-        
-    except Exception as e:
-        st.error(f"❌ Report generation failed: {str(e)}")
-
-def display_search_results(results: List[Dict[str, Any]], title: str):
-    """Display search results in a table."""
-    if not results:
-        st.info("📭 No results found")
-        return
-    
-    if title:
-        st.subheader(title)
-    
-    # Convert to DataFrame for better display
-    data = []
-    for result in results:
-        data.append({
-            "ID": result.get('id', 'N/A')[:8],
-            "Content": result.get('memory', '')[:100] + "..." if len(result.get('memory', '')) > 100 else result.get('memory', ''),
-            "Created": format_date(result.get('created_at')),
-            "Source": result.get('metadata', {}).get('source', 'unknown'),
-            "Score": f"{result.get('score', 0):.2f}" if isinstance(result.get('score'), (int, float)) else str(result.get('score', 'N/A'))
-        })
-    
-    df = pd.DataFrame(data)
-    st.dataframe(df, use_container_width=True)
-    
-    # Detailed view
-    if st.checkbox("📋 Show Detailed View"):
-        for i, result in enumerate(results[:5]):  # Limit to first 5 for performance
-            with st.expander(f"Memory {i+1}: {result.get('id', 'N/A')[:8]}"):
-                st.text_area("Content", result.get('memory', ''), height=100, key=f"content_{i}")
-                
-                metadata = result.get('metadata', {})
-                if metadata:
-                    st.json(metadata)
-
-def show_stats(user_id: str):
-    """Show user statistics."""
-    try:
-        with st.spinner("Loading stats..."):
-            stats = st.session_state.searcher.get_user_stats(user_id)
-        
-        st.subheader("📊 User Statistics")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Memories", stats['total_memories'])
-        with col2:
-            st.metric("Recent (7 days)", stats['recent_memories_7d'])
-        with col3:
-            st.metric("User ID", stats['user_id'])
-        
-        # Sources chart
-        if stats['sources']:
-            st.subheader("📋 Sources Breakdown")
-            source_df = pd.DataFrame(list(stats['sources'].items()), columns=['Source', 'Count'])
-            st.bar_chart(source_df.set_index('Source'))
-        
-        # Extract modes
-        if stats['extract_modes']:
-            st.subheader("⚙️ Extract Modes")
-            mode_df = pd.DataFrame(list(stats['extract_modes'].items()), columns=['Mode', 'Count'])
-            st.bar_chart(mode_df.set_index('Mode'))
-        
-    except Exception as e:
-        st.error(f"❌ Failed to load stats: {str(e)}")
-
-def format_date(date_str: str) -> str:
-    """Format date string for display."""
-    if not date_str or date_str == 'N/A':
-        return 'N/A'
-    
-    try:
-        dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-        return dt.strftime('%Y-%m-%d')
-    except:
-        return date_str[:10] if len(date_str) >= 10 else date_str
+# Functions moved to core/web_helpers.py
 
 if __name__ == "__main__":
     main() 
