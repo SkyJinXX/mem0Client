@@ -245,23 +245,28 @@ class MemoryUploader:
                        len(messages) > self.config.message_batch_threshold)
         
         try:
-            # Prepare additional parameters for Mem0 (using v2 API format)
-            add_params = {
-                "user_id": user_id,
-                "version": "v2"
-            }
+            # Extract timestamp from metadata if available (for JSON chat files)
+            timestamp = None
+            if metadata and "updated" in metadata:
+                try:
+                    # Convert updated timestamp (ISO format) to Unix timestamp
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(metadata["updated"].replace('Z', '+00:00'))
+                    timestamp = int(dt.timestamp())
+                    console.print(f"🕐 Using timestamp from file: {metadata['updated']} (Unix: {timestamp})")
+                except Exception as e:
+                    console.print(f"⚠️ Could not parse timestamp from metadata: {e}")
             
-            # Add custom processing parameters if available
-            if custom_instructions:
-                add_params["custom_instructions"] = custom_instructions
-            if includes:
-                add_params["includes"] = includes
-            if excludes:
-                add_params["excludes"] = excludes
-            if infer is not None:
-                add_params["infer"] = infer
-            if metadata:
-                add_params["metadata"] = metadata
+            # Prepare additional parameters for Mem0 using utility
+            add_params = ApiParameterBuilder.build_upload_params(
+                user_id=user_id,
+                custom_instructions=custom_instructions,
+                includes=includes,
+                excludes=excludes,
+                infer=infer,
+                metadata=metadata,
+                timestamp=timestamp
+            )
             
             # Log the parameters being sent to Mem0 (if debug enabled)
             if self.config.debug_logging:
@@ -294,6 +299,8 @@ class MemoryUploader:
                     console.print(f"  ❌ excludes: '{excludes}'")
                 if infer is not None:
                     console.print(f"  🧠 infer: {infer}")
+                if timestamp is not None:
+                    console.print(f"  🕐 timestamp: {timestamp}")
                 
                 # Log metadata (excluding lengthy fields)
                 metadata_summary = {}

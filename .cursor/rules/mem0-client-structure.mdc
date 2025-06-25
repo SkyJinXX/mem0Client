@@ -19,13 +19,14 @@ The Mem0 Client is a sophisticated tool for managing AI memories with both CLI a
 
 ## 📂 Core Module Structure
 
-### 🚀 Latest Architecture (2024 Enhanced)
+### 🚀 Latest Architecture (2025 Enhanced)
 
 The codebase has been significantly enhanced with:
 - **Persistent Advanced Settings**: Custom instructions, includes/excludes saved to config
 - **Enhanced Batch Upload**: Concurrent processing, per-file retry, error isolation
 - **Unified Extract Mode**: Always uses "auto" mode, no more mode selection
 - **Sidebar Advanced Settings**: All processing options in web sidebar
+- **Automatic Timestamp Support**: JSON chat files maintain original conversation timestamps
 - **300+ lines of duplicate code eliminated**
 - **25-37% file size reduction**
 - **New utility modules for code reuse**
@@ -101,7 +102,7 @@ file_processing:
 
 **Class: `MemoryUploader`**
 - **Purpose**: Handle memory uploads with enhanced batch processing and concurrency
-- **NEW Features**: Concurrent processing, per-file retry, error isolation
+- **NEW Features**: Concurrent processing, per-file retry, error isolation, automatic timestamp support
 
 **Enhanced Methods**:
 - `upload_batch(file_paths, user_id, extract_mode, custom_instructions, includes, excludes, infer, concurrent_upload)` → `List[Dict]`
@@ -112,8 +113,14 @@ file_processing:
   - **Detailed reporting**: Success rate, attempt counts, detailed error info
 
 - `upload_text(...)` → `Dict` - **SIMPLIFIED**: Always uses "auto" extract mode
-- `upload_file(...)` → `Dict` - **SIMPLIFIED**: Always uses "auto" extract mode
+- `upload_file(...)` → `Dict` - **ENHANCED**: Always uses "auto" extract mode + automatic timestamp extraction
 - `upload_directory(...)` → `List[Dict]` - **REMOVED**: Now uses enhanced upload_batch
+
+**NEW Timestamp Support**:
+- **Automatic Detection**: JSON files with `updated` field automatically use that timestamp
+- **Time Conversion**: Converts milliseconds to Unix timestamp for Mem0 API
+- **Debug Logging**: Shows timestamp extraction and API parameter passing
+- **Historical Accuracy**: Maintains original conversation timestamps for imported chats
 
 **Key Internal Functions**:
 ```python
@@ -189,18 +196,23 @@ python cli.py upload-directory /path --concurrent --use-defaults --custom-instru
 - `detect_content_type(content, file_extension)` - Auto-detection
 - `parse_file(file_path, extract_mode)` - Main entry point
 
-### Common Utilities - [utils.py](mdc:core/utils.py) **STABLE**
+### Common Utilities - [utils.py](mdc:core/utils.py) **ENHANCED**
 
-**Purpose**: Centralized utility classes (no changes, remains stable)
+**Purpose**: Centralized utility classes with timestamp support
 
 **Key Classes**:
 - `DebugLogger` - Unified debug logging
 - `FilterBuilder` - API filter construction
 - `DateTimeHelper` - Date/time handling
 - `ResultDisplayer` - Result formatting
-- `ApiParameterBuilder` - API parameter building
+- `ApiParameterBuilder` - **ENHANCED**: API parameter building with timestamp support
 - `ErrorPatterns` - Error pattern recognition
 - `MessageProcessor` - Message processing utilities
+
+**NEW Timestamp Features**:
+- `ApiParameterBuilder.build_upload_params()` - Added `timestamp` parameter support
+- **Automatic Integration**: Timestamp parameter seamlessly passed to Mem0 API
+- **Backward Compatibility**: Optional parameter, existing code unaffected
 
 ### Memory Searching - [searcher.py](mdc:core/searcher.py) **STABLE**
 
@@ -244,6 +256,12 @@ python cli.py upload-directory /path --concurrent --use-defaults --custom-instru
 - **Rationale**: Simplifies interface, "auto" mode works best for most use cases
 - **Impact**: Cleaner UI, fewer configuration options
 
+### 5. **Automatic Timestamp Support** ⭐ **NEW**
+- **JSON Chat Files**: Automatically uses `updated` timestamp from file metadata
+- **Historical Accuracy**: Imported conversations maintain original timestamps, not import time
+- **Time-based Search**: Enables proper chronological memory organization and retrieval
+- **Seamless Integration**: No user intervention required, works automatically with Echoes exports
+
 ## 🐛 Debugging and Development
 
 ### Configuration Validation
@@ -282,11 +300,12 @@ debug:
 
 ## 📊 Data Flow
 
-1. **Upload Flow**: File → Parser → Messages → Enhanced Uploader (with concurrency) → Mem0 API
+1. **Upload Flow**: File → Parser → Messages + Metadata → Enhanced Uploader (with concurrency + timestamp) → Mem0 API
 2. **Config Flow**: YAML → Config class → Web/CLI interfaces → User actions → Save back to YAML
 3. **Batch Flow**: Multiple files → Concurrent/Sequential processing → Individual retry → Detailed results
+4. **Timestamp Flow**: JSON file → Extract `updated` field → Convert to Unix timestamp → Pass to Mem0 API
 
-This enhanced architecture provides robust, user-friendly AI memory management with persistent configuration, advanced batch processing, and improved error handling.
+This enhanced architecture provides robust, user-friendly AI memory management with persistent configuration, advanced batch processing, automatic timestamp preservation, and improved error handling.
 
 
 

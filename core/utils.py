@@ -68,7 +68,7 @@ class FilterBuilder:
         return {
             "AND": [
                 {"user_id": user_id},
-                {"created_at": {"gte": start_date, "lte": end_date}}
+                {"updated_at": {"gte": start_date, "lte": end_date}}
             ]
         }
     
@@ -190,7 +190,8 @@ class ApiParameterBuilder:
     @staticmethod
     def build_upload_params(user_id: str, custom_instructions: Optional[str] = None,
                            includes: Optional[str] = None, excludes: Optional[str] = None,
-                           infer: Optional[bool] = None, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                           infer: Optional[bool] = None, metadata: Optional[Dict[str, Any]] = None,
+                           timestamp: Optional[int] = None) -> Dict[str, Any]:
         """Build upload API parameters."""
         params = {
             "user_id": user_id,
@@ -207,6 +208,8 @@ class ApiParameterBuilder:
             params["infer"] = infer
         if metadata:
             params["metadata"] = metadata
+        if timestamp is not None:
+            params["timestamp"] = timestamp
             
         return params
     

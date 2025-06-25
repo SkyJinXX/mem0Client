@@ -254,12 +254,26 @@ debug:
 ### JSON Chat Format
 ```json
 {
+  "id": "conversation-123",
+  "title": "Chat with AI",
+  "created": 1672531200000,
+  "updated": 1672531200000,
   "messages": [
     {"role": "user", "content": "Hello"},
     {"role": "assistant", "content": "Hi there!"}
   ]
 }
 ```
+
+#### 🕐 Automatic Timestamp Support
+
+**When uploading JSON chat files, the system automatically uses the `updated` timestamp from the file instead of the current time.** This means:
+
+- **Historical Accuracy**: Your imported conversations maintain their original timestamps
+- **Proper Chronology**: Memories are created with the actual conversation time, not the import time
+- **Time-based Search**: You can search memories by their original conversation dates
+
+The `updated` field in JSON files is automatically converted from milliseconds to Unix timestamp and passed to Mem0's timestamp API.
 
 ### 💡 Exporting Chat Conversations
 
